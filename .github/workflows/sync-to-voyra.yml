@@ -22,7 +22,7 @@ jobs:
 
       - name: Sync files
         run: |
-          for f in ScheduleHub ClassSchedule Planner; do
+          for f in ScheduleHub ClassSchedule Planner HomeworkBoard; do
             cp "src/pages/$f.jsx" "voyra/src/pages/$f.jsx"
           done
 
@@ -31,7 +31,7 @@ jobs:
           cd voyra
           git config user.name "Voyra-schedule-sync[bot]"
           git config user.email "liixnglinb@users.noreply.github.com"
-          git add src/pages/ScheduleHub.jsx src/pages/ClassSchedule.jsx src/pages/Planner.jsx
+          git add src/pages/ScheduleHub.jsx src/pages/ClassSchedule.jsx src/pages/Planner.jsx src/pages/HomeworkBoard.jsx
           if git diff --cached --quiet; then
             echo "无代码变更，跳过提交"
             exit 0

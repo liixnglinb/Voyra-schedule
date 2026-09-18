@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2, Check,
+  CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2, Check, ChevronDown,
   GraduationCap, Sun, FlaskConical, Star, PartyPopper, CalendarPlus,
+  ClipboardList, Users, Cake, Plane, Stethoscope, Heart,
 } from 'lucide-react';
 import DateTimePicker from '../components/DateTimePicker';
 import { useAuth } from '../components/AuthGate';
+import { loadItems, groupByDate, urgency, urgentStyle, badgeText } from './HomeworkBoard';
 
 /* ============================================================
    个人日程表 · Planner
@@ -34,12 +36,18 @@ const HOLIDAYS = [
 ];
 const WORKDAYS = ['2026-01-04', '2026-02-14', '2026-02-28', '2026-05-09', '2026-09-20', '2026-10-10'];
 
-/* 日程分类 */
+/* 日程分类（色点 + 图标 + 主题色，用于下拉、标签与月历条） */
 const CATS = {
-  开学: { color: '#0CA678', icon: GraduationCap },
-  放假: { color: '#F59E0B', icon: Sun },
-  考试: { color: '#EF4444', icon: FlaskConical },
-  活动: { color: '#6366F1', icon: PartyPopper },
+  开学:   { color: '#0CA678', icon: GraduationCap },
+  放假:   { color: '#E8930C', icon: Sun },
+  考试:   { color: '#E14B4B', icon: FlaskConical },
+  活动:   { color: '#5B6EE8', icon: PartyPopper },
+  作业:   { color: '#7B6BD6', icon: ClipboardList },
+  会议:   { color: '#3F7CAF', icon: Users },
+  生日:   { color: '#D45C93', icon: Cake },
+  旅行:   { color: '#1F9C93', icon: Plane },
+  医疗:   { color: '#B0664A', icon: Stethoscope },
+  纪念日: { color: '#9B7FC4', icon: Heart },
   自定义: { color: '#6c757d', icon: Star },
 };
 
@@ -59,12 +67,67 @@ function holidayName(date) {
   return HOLIDAYS.filter((h) => range(h.from, h.to).includes(date)).map((h) => h.name);
 }
 
-export default function Planner() {
+/* 类型下拉：色点 + 图标 + 名称，选中打勾，点击外部或按 Esc 关闭 */
+function CatSelect({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const cur = CATS[value] || CATS['自定义'];
+  const CurIcon = cur.icon;
+
+  return (
+    <div className="pl-catsel" ref={ref}>
+      <button type="button" className={`pl-catsel-btn${open ? ' on' : ''}`} onClick={() => setOpen((v) => !v)}>
+        <span className="dot" style={{ background: cur.color }} />
+        <CurIcon size={13} style={{ color: cur.color }} />
+        <span className="txt">{value}</span>
+        <ChevronDown size={13} className={`arw${open ? ' up' : ''}`} />
+      </button>
+      {open && (
+        <div className="pl-catpop">
+          {Object.keys(CATS).map((k) => {
+            const c = CATS[k];
+            const Icon = c.icon;
+            const on = k === value;
+            return (
+              <button
+                type="button"
+                key={k}
+                className={`pl-catopt${on ? ' on' : ''}`}
+                onClick={() => { onChange(k); setOpen(false); }}
+              >
+                <span className="dot" style={{ background: c.color }} />
+                <Icon size={13} style={{ color: c.color }} />
+                <span className="txt">{k}</span>
+                {on && <Check size={13} style={{ marginLeft: 'auto', color: ACCENT }} />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function Planner({ active = true }) {
   const { guard } = useAuth();
   const today = new Date();
   const [view, setView] = useState({ y: today.getFullYear(), m: today.getMonth() + 1 });
   const [selected, setSelected] = useState(fmt(today));
   const [events, setEvents] = useState([]);
+  const [hw, setHw] = useState([]);
   const [loaded, setLoaded] = useState(false);
   // 添加表单
   const [form, setForm] = useState({
@@ -82,6 +145,11 @@ export default function Planner() {
     setLoaded(true);
   }, []);
 
+  /* 作业数据只读透出：切回本视图时重新读取，避免与作业看板的改动脱节 */
+  const reloadHw = () => { try { setHw(loadItems()); } catch { setHw([]); } };
+  useEffect(reloadHw, []);
+  useEffect(() => { if (active) reloadHw(); }, [active]);
+
   const persist = (next) => {
     if (!guard()) return;
     setEvents(next);
@@ -94,6 +162,8 @@ export default function Planner() {
     Object.values(m).forEach((arr) => arr.sort((a, b) => (a.time < b.time ? -1 : 1)));
     return m;
   }, [events]);
+
+  const hwByDate = useMemo(() => groupByDate(hw), [hw]);
 
   /* 当月所有可渲染的天（含上月/下月补齐） */
   const cells = useMemo(() => {
@@ -123,6 +193,7 @@ export default function Planner() {
   const selWeekday = WEEK[(new Date(selected + 'T00:00:00').getDay() + 6) % 7];
   const selHolidays = holidayName(selected);
   const selEvents = byDate[selected] || [];
+  const selHw = hwByDate[selected] || [];
   const isWorkday = WORKDAYS.includes(selected);
 
   const addEvent = () => {
@@ -169,6 +240,7 @@ export default function Planner() {
         .pl-cell .hol { font-size:10px;color:#E8590C;font-weight:700;margin-top:2px;line-height:1.3; }
         .pl-cell .ev { font-size:10.5px;color:#212529;background:#fff;border-radius:5px;padding:1px 4px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:3px solid #0CA678; }
         .pl-cell .ev2 { border-left-color:#6366F1; }
+        .pl-cell .ev.hw { background:#FFFDF2; color:#495057; font-weight:600; }
         .pl-cell .more { font-size:10px;color:#adb5bd;margin-top:2px; }
         /* 右栏 */
         .pl-detail { display:flex;flex-direction:column;gap:10px; }
@@ -176,6 +248,20 @@ export default function Planner() {
         .pl-ev .title { font-size:13px;font-weight:700;color:#212529; }
         .pl-ev .meta { font-size:11px;color:#6c757d; }
         .pl-cat { display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px; }
+        .pl-catsel { position:relative; }
+        .pl-catsel-btn { display:inline-flex;align-items:center;gap:7px;min-width:124px;border:1px solid rgba(20,24,33,.13);background:#fff;border-radius:9px;padding:8px 11px;font-size:13px;font-weight:600;color:#212529;cursor:pointer;transition:all .15s ease; }
+        .pl-catsel-btn:hover { border-color:${ACCENT_LINE}; }
+        .pl-catsel-btn.on { border-color:${ACCENT};box-shadow:0 0 0 3px rgba(164,136,48,.13); }
+        .pl-catsel-btn .dot, .pl-catopt .dot { width:8px;height:8px;border-radius:999px;flex:none; }
+        .pl-catsel-btn .txt, .pl-catopt .txt { flex:1;text-align:left; }
+        .pl-catsel-btn .arw { color:#adb5bd;transition:transform .18s ease; }
+        .pl-catsel-btn .arw.up { transform:rotate(180deg); }
+        .pl-catpop { position:absolute;top:calc(100% + 6px);left:0;z-index:40;width:172px;max-height:268px;overflow-y:auto;background:#fff;border:1px solid rgba(20,24,33,.10);border-radius:12px;box-shadow:0 18px 36px -16px rgba(16,20,30,.30);padding:6px;display:flex;flex-direction:column;gap:2px; }
+        .pl-catopt { display:flex;align-items:center;gap:8px;width:100%;border:none;background:transparent;border-radius:8px;padding:7px 9px;font-size:13px;font-weight:600;color:#343a40;cursor:pointer;text-align:left;transition:background .13s ease; }
+        .pl-catopt:hover { background:#FCFAF2; }
+        .pl-catopt.on { background:${ACCENT_SOFT};color:#1b1b1b; }
+        .pl-hw { border-top:1px dashed rgba(20,24,33,.14);padding-top:10px;display:flex;flex-direction:column;gap:10px; }
+        .pl-hw-title { font-size:12px;color:#6c757d;font-weight:600; }
         .pl-toast { position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#212529;color:#fff;padding:9px 16px;border-radius:999px;font-size:12.5px;z-index:99; }
         @media (max-width:560px) {
           .pl-card { padding:14px 12px; }
@@ -210,6 +296,7 @@ export default function Planner() {
             if (!c.date) return <div key={i} className="pl-cell off" />;
             const hols = holidayName(c.date);
             const evs = byDate[c.date] || [];
+            const hws = hwByDate[c.date] || [];
             const isHoliday = hols.length > 0;
             const isWork = WORKDAYS.includes(c.date);
             return (
@@ -227,6 +314,12 @@ export default function Planner() {
                   </div>
                 ))}
                 {evs.length > 2 && <div className="more">+{evs.length - 2} 条</div>}
+                {hws.slice(0, 1).map((h) => (
+                  <div key={h.id} className="ev hw" style={{ borderLeftColor: urgentStyle(urgency(h)).line }}>
+                    {h.title}
+                  </div>
+                ))}
+                {hws.length > 1 && <div className="more">作业 +{hws.length - 1} 条</div>}
               </div>
             );
           })}
@@ -263,6 +356,24 @@ export default function Planner() {
             );
           })}
 
+          {selHw.length > 0 && (
+            <div className="pl-hw">
+              <div className="pl-hw-title">当天作业 · {selHw.length} 条（在「作业看板」中编辑）</div>
+              {selHw.map((h) => {
+                const st = urgentStyle(urgency(h));
+                return (
+                  <div key={h.id} className="pl-ev">
+                    <span className="pl-cat" style={{ color: st.color, background: st.bg }}>{badgeText(h)}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="title">{h.title}</div>
+                      <div className="meta">{h.courseName || '未分类'} · {h.dueTime} 截止{h.note ? ` · ${h.note}` : ''}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           <div style={{ borderTop: '1px dashed rgba(20,24,33,.14)', marginTop: 6, paddingTop: 14 }}>
             <div className="pl-top" style={{ marginBottom: 10 }}>
               <div className="pl-ico" style={{ width: 28, height: 28 }}><CalendarPlus size={15} /></div>
@@ -280,9 +391,7 @@ export default function Planner() {
                 </div>
                 <div>
                   <div className="pl-label">类型</div>
-                  <select className="pl-input" value={form.cat} onChange={(e) => setForm({ ...form, cat: e.target.value })}>
-                    {Object.keys(CATS).map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                  <CatSelect value={form.cat} onChange={(c) => setForm({ ...form, cat: c })} />
                 </div>
               </div>
               <div>
