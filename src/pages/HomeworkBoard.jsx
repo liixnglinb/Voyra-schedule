@@ -39,16 +39,6 @@ const TYPES = {
 
 const COURSE_PALETTE = ['#A48830', '#109965', '#266DDE', '#6D4ADC', '#DF5432', '#0E89A3'];
 
-const VIEW_ATTENTION = 'attention';
-const VIEW_ALL = 'all';
-const VIEW_COURSE = 'course';
-
-const VIEWS = [
-  [VIEW_ATTENTION, '需要留意', AlertTriangle],
-  [VIEW_ALL, '全部未交', ClipboardList],
-  [VIEW_COURSE, '按课程', BookOpen],
-];
-
 const URGENT = {
   overdue: { color: OVERDUE, bg: '#FEECEC', line: OVERDUE },
   today: { color: '#B45309', bg: '#FFF4DE', line: ACCENT },
@@ -201,7 +191,6 @@ export default function HomeworkBoard({ active = true }) {
   const [items, setItems] = useState([]);
   const [courses, setCourses] = useState([]);
   const [startDate, setStartDate] = useState('');
-  const [view, setView] = useState(VIEW_ATTENTION);
   const [expanded, setExpanded] = useState({});
   const [quickOpen, setQuickOpen] = useState(false);
   const [clearArmed, setClearArmed] = useState(false);
@@ -244,6 +233,11 @@ export default function HomeworkBoard({ active = true }) {
   const counts = useMemo(() => countDays(items, now), [items]);
   const attention = useMemo(() => attentionItems(items, now), [items]);
   const undone = useMemo(() => sortByDue(items.filter((i) => i.status !== 'done')), [items]);
+  /* 与「需要留意」不重叠：只留 7 天以外与未设截止的 */
+  const farOut = useMemo(
+    () => undone.filter((i) => ['later', 'none'].includes(urgency(i, now))),
+    [undone, now],
+  );
 
   const courseNames = useMemo(() => {
     const seen = {};
@@ -396,13 +390,8 @@ export default function HomeworkBoard({ active = true }) {
       .hw-input:focus { border-color:${ACCENT}; }
       .hw-label { font-size:12px;color:${MUTE};font-weight:600;display:block;margin-bottom:5px; }
 
-      /* 视图切换 */
-      .hw-views { display:inline-flex;gap:3px;padding:3px;border-radius:10px;background:#F4F5F6; }
-      .hw-view { display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;color:${MUTE};
-        border-radius:8px;font-size:12.5px;font-weight:650;padding:6px 11px;cursor:pointer;
-        transition:background .15s ease, color .15s ease, box-shadow .15s ease; }
-      .hw-view:hover { color:${INK}; }
-      .hw-view.on { background:#fff;color:${ACCENT};box-shadow:0 1px 3px rgba(16,20,30,.12); }
+      /* 视图切换已移除，三张卡并列 */
+      .hw-list { display:flex;flex-direction:column;gap:9px; }
 
       /* 提醒带 */
       .hw-alerts { display:flex;align-items:stretch;gap:10px;flex-wrap:wrap; }
@@ -464,7 +453,6 @@ export default function HomeworkBoard({ active = true }) {
       .hw-empty { display:flex;flex-direction:column;align-items:center;gap:7px;padding:26px 14px;margin:0;
         color:#868e96;font-size:13px;text-align:center; }
       .hw-empty svg { color:#d3d6db; }
-      .hw-empty-sub { font-size:11.5px;color:#adb5bd; }
       .hw-foot { font-size:12px;color:${MUTE};margin:0; }
       .hw-toast { position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#212529;color:#fff;
         padding:9px 16px;border-radius:999px;font-size:12.5px;z-index:99; }
@@ -479,9 +467,6 @@ export default function HomeworkBoard({ active = true }) {
         .hw-chip-n b { font-size:17px; }
         .hw-chip-n i { font-size:10.5px; }
         .hw-clear { flex:1 1 100%;justify-content:center; }
-        .hw-views { width:100%; }
-        .hw-view { flex:1 1 0;justify-content:center;padding:6px 6px;font-size:12px; }
-        .hw-view svg { display:none; }
         .hw-row { gap:9px;padding:10px 9px; }
         .hw-del { padding:6px 8px; }
       }
@@ -591,48 +576,49 @@ export default function HomeworkBoard({ active = true }) {
       </div>
     )}
 
-    {/* 明细：三种视图共用一张卡 */}
+    {/* 三张独立卡片：需要留意 / 全部未交 / 按课程 */}
+    <div className="hw-card">
+      <div className="hw-top hw-head">
+        <div className="hw-ico"><AlertTriangle size={16} color={counts.overdue ? OVERDUE : ACCENT} /></div>
+        <h3>需要留意</h3>
+        <div className="hw-sp" />
+        <span className="hw-num">{attention.length} 条</span>
+      </div>
+      <div className="hw-list">
+        {attention.length === 0 ? (
+          <p className="hw-empty">
+            <ClipboardCheck size={26} />
+            {items.length === 0 ? '还没有作业记录，点上方「布置作业」开始记录。' : '这几天没有到期的作业。'}
+          </p>
+        ) : attention.map((it) => renderRow(it, true))}
+      </div>
+    </div>
+
+    <div className="hw-card">
+      <div className="hw-top hw-head">
+        <div className="hw-ico"><ClipboardList size={16} /></div>
+        <h3>更远的作业</h3>
+        <div className="hw-sp" />
+        <span className="hw-num">{farOut.length} 条</span>
+      </div>
+      <div className="hw-list">
+        {farOut.length === 0 ? (
+          <p className="hw-empty">
+            <ClipboardCheck size={26} />
+            {items.length === 0 ? '还没有作业记录。' : '7 天以外没有要交的作业了。'}
+          </p>
+        ) : farOut.map((it) => renderRow(it, true))}
+      </div>
+    </div>
+
     <div className="hw-card hw-groups">
       <div className="hw-top hw-head">
-        <div className="hw-ico">
-          {view === VIEW_ATTENTION ? <AlertTriangle size={16} /> : (view === VIEW_ALL ? <ClipboardList size={16} /> : <BookOpen size={16} />)}
-        </div>
-        <h3>{view === VIEW_ATTENTION ? '需要留意' : (view === VIEW_ALL ? '全部未交' : '按课程')}</h3>
+        <div className="hw-ico"><BookOpen size={16} /></div>
+        <h3>按课程</h3>
         <div className="hw-sp" />
-        <span className="hw-num">
-          {view === VIEW_ATTENTION ? `${attention.length} 条` : (view === VIEW_ALL ? `${undone.length} 条` : `${groups.length} 门`)}
-        </span>
-        <div className="hw-views" role="group" aria-label="作业视图">
-          {VIEWS.map(([id, label, Icon]) => (
-            <button
-              key={id}
-              type="button"
-              aria-pressed={view === id}
-              className={`hw-view${view === id ? ' on' : ''}`}
-              onClick={() => setView(id)}
-            >
-              <Icon size={14} />{label}
-            </button>
-          ))}
-        </div>
+        <span className="hw-num">{groups.length} 门</span>
       </div>
-
-      {view === VIEW_ATTENTION && (attention.length === 0 ? (
-        <p className="hw-empty">
-          <ClipboardCheck size={26} />
-          {items.length === 0 ? '还没有作业记录，点上方「布置作业」开始记录。' : '这几天没有到期的作业。'}
-          {items.length > 0 && undone.length > 0 && <span className="hw-empty-sub">切到「全部未交」看更远的作业。</span>}
-        </p>
-      ) : attention.map((it) => renderRow(it, true)))}
-
-      {view === VIEW_ALL && (undone.length === 0 ? (
-        <p className="hw-empty">
-          <ClipboardCheck size={26} />
-          {items.length === 0 ? '还没有作业记录。' : '没有未交的作业了。'}
-        </p>
-      ) : undone.map((it) => renderRow(it, true)))}
-
-      {view === VIEW_COURSE && (groups.length === 0 ? (
+      {groups.length === 0 ? (
         <p className="hw-empty">
           <Columns3 size={26} />
           还没有作业记录。
@@ -667,7 +653,7 @@ export default function HomeworkBoard({ active = true }) {
             </div>
           </div>
         );
-      }))}
+      })}
     </div>
 
     <p className="hw-foot">
