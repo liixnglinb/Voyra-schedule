@@ -16,7 +16,7 @@ import { useAuth } from '../components/AuthGate';
    ============================================================ */
 
 const LS_KEY = 'ClassScheduleData';
-import { userKey } from '../lib/auth';
+import { userKey, isAuthed } from '../lib/auth';
 const LS_READ = () => userKey(LS_KEY);
 const ACCENT = '#A48830';
 const ACCENT_SOFT = '#FFF9DF';
@@ -568,7 +568,8 @@ function inWeek(c, w) {
 }
 
 export default function ClassSchedule({ stats = null, active = true }) {
-  const { guard } = useAuth();
+  const { guard, authed } = useAuth();
+  const CLOUD_KEY = 'schedule-classes-v1';   // 云端同步键（2026-09-20：登录后跨设备跟随）
   const [courses, setCourses] = useState([]);
   const [settings, setSettings] = useState({ startDate: '', overrideWeek: null, timeSlots: null });
   const [showSettings, setShowSettings] = useState(false);
@@ -642,12 +643,39 @@ export default function ClassSchedule({ stats = null, active = true }) {
     } catch { /* ignore */ }
   }, []);
 
+  /* ===== 云端同步（2026-09-20）：登录后课表上云，跨设备跟随 =====
+     云端有 → 以云端为准覆盖本机；云端无 → 把本机课表首推上云（含 ClassScheduleData_local 旧键一次性迁移） */
+  useEffect(() => {
+    if (!authed) return;
+    let alive = true;
+    (async () => {
+      try {
+        const cloud = await window.electronAPI?.loadData?.(CLOUD_KEY);
+        if (!alive) return;
+        if (cloud && Array.isArray(cloud.courses)) {
+          const savedCourses = (cloud.courses || []).map(normalizeCourse);
+          const savedSettings = cloud.settings || { startDate: '', overrideWeek: null, timeSlots: null };
+          setCourses(savedCourses);
+          setSettings(savedSettings);
+          try { localStorage.setItem(LS_READ(), JSON.stringify({ courses: savedCourses, settings: savedSettings })); } catch { /* ignore */ }
+        } else {
+          const local = JSON.parse(localStorage.getItem(LS_READ()) || 'null');
+          const legacy = JSON.parse(localStorage.getItem('ClassScheduleData_local') || 'null');
+          const first = local || legacy;
+          if (first && Array.isArray(first.courses)) await window.electronAPI?.saveData?.(CLOUD_KEY, first);
+        }
+      } catch { /* ignore */ }
+    })();
+    return () => { alive = false; };
+  }, [authed]);
+
   const persist = (nextCourses, nextSettings) => {
     if (!guard()) return;
     const c = (nextCourses ?? courses).map(normalizeCourse);
     const s = nextSettings ?? settings;
     setCourses(c); setSettings(s);
     try { localStorage.setItem(LS_READ(), JSON.stringify({ courses: c, settings: s })); } catch { /* ignore */ }
+    try { Promise.resolve(window.electronAPI?.saveData?.(CLOUD_KEY, { courses: c, settings: s })).catch(() => {}); } catch { /* ignore */ }
   };
 
   /* 节次时间：默认值 + 用户在「时间设置」中的覆盖（只覆盖 time，label/夜间标志仍用默认） */
@@ -821,14 +849,16 @@ export default function ClassSchedule({ stats = null, active = true }) {
           .cs-grid tr > .per { position:sticky; left:0; z-index:3; box-shadow:1px 0 0 rgba(20,24,33,.1); }
           .cs-grid thead th.per { z-index:5; }
           .cs-grid thead th { font-size:12.5px; padding:12px 4px; }
-          .cs-grid .per { font-size:10.5px; padding:10px 4px; }
-          .cs-grid .per b { font-size:12.5px; }
+          .cs-grid .per { font-size:var(--fs-meta); padding:10px 4px; }
+          .cs-grid .per b { font-size:var(--fs-label); }
           .cs-grid tbody td { padding:4px;height:var(--cs-row-h,100px); }
           .cs-cell { padding:7px 6px;border-radius:8px; }
-          .cs-cell .n { font-size:12.5px; }
-          .cs-cell .r,.cs-cell .t { font-size:10.5px; }
-          .cs-cell .w { font-size:10px; }
-          .cs-h h3 { font-size:15.5px; }
+          /* 课程名是课表里真正要读的东西，给到正文级；教室与时间紧随其后 */
+          .cs-cell .n { font-size:var(--fs-body); line-height:1.35; }
+          .cs-cell .r { font-size:var(--fs-meta); padding:3px 6px; }
+          .cs-cell .t { font-size:var(--fs-meta); }
+          .cs-cell .w { font-size:var(--fs-meta); }
+          .cs-h h3 { font-size:var(--fs-lead); }
           /* 收紧间距让今日概览留在同一行，避免行尾出现孤立的分隔点 */
           .cs-today { gap:7px; font-size:12.5px; }
           .cs-today-date { gap:5px; font-size:13.5px; }
