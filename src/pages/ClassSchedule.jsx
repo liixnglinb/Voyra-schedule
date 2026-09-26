@@ -812,8 +812,16 @@ export default function ClassSchedule({ stats = null, active = true, drawerPanel
   }, []);
 
   useEffect(() => {
-    if (active) requestAnimationFrame(fitGrid);
-  }, [active]);
+    if (!active) return undefined;
+    /* 展开/收起时间轴会改变左侧列宽与整卡高度，这里重算一次行高。
+       注意：这只解决"行高有余量"的情况；如果某门课的格子因为列变窄而
+       需要比行高更高的空间，表格会自己长高、整页随之可滚（实测 +23px）。
+       默认收起时是一屏，展开是用户主动要看时间，这个代价可接受 —— 
+       要彻底消掉得让时间轴改成浮层而不是占一列。 */
+    const raf = requestAnimationFrame(fitGrid);
+    const t = setTimeout(fitGrid, 320);
+    return () => { cancelAnimationFrame(raf); clearTimeout(t); };
+  }, [active, railOpen]);
 
   /* 增删课程 / 设置面板展开收起都会改变卡片高度，联动重算 */
   useEffect(() => {
